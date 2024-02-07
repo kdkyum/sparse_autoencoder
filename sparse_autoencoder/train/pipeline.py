@@ -180,6 +180,7 @@ class Pipeline:
         with torch.no_grad():
             while len(store) < store_size:
                 batch = next(self.source_data)
+                print(batch["input_ids"].shape[0])
                 input_ids: Int[Tensor, Axis.names(Axis.SOURCE_DATA_BATCH, Axis.POSITION)] = batch[
                     "input_ids"
                 ].to(source_model_device)

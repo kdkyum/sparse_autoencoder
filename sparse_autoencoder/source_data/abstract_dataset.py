@@ -237,6 +237,5 @@ class SourceDataset(ABC, Generic[HuggingFaceDatasetItem]):
             # Shuffle is most efficiently done with the `shuffle` method on the dataset itself, not
             # here.
             shuffle=False,
-            drop_last=True,
             num_workers=num_workers,
         )
