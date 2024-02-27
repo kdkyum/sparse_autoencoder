@@ -1,4 +1,6 @@
 """Default pipeline."""
+import itertools
+from copy import deepcopy
 from collections.abc import Iterator
 from functools import partial
 import logging
@@ -92,6 +94,8 @@ class Pipeline:
         source_model: HookedTransformer | DataParallelWithModelAttributes[HookedTransformer],
         n_input_features: int,
         n_learned_features: int,
+        train_batch_size: int,
+        max_store_size: int,
         run_name: str = "sparse_autoencoder",
         checkpoint_directory: Path = DEFAULT_CHECKPOINT_DIRECTORY,
         log_frequency: PositiveInt = 100,
@@ -139,15 +143,22 @@ class Pipeline:
         source_dataloader = source_dataset.get_dataloader(
             source_data_batch_size, num_workers=num_workers_data_loading
         )
-        self.source_data = iter(source_dataloader)
+        self.source_data = itertools.cycle(source_dataloader)
+        
+        self.train_batch_size = train_batch_size
+        # Get the store size
+        self.store_size = max_store_size - max_store_size % (
+            self.source_data_batch_size * self.source_dataset.context_size
+        )
+        self.activation_store = TensorActivationStore(
+            self.store_size, self.n_input_features, n_components=self.n_components
+        )
+        
+        self.activations_dataloader = DataLoader(self.activation_store, batch_size=train_batch_size)
 
     @validate_call
-    def generate_activations(self, store_size: PositiveInt) -> TensorActivationStore:
+    def generate_activations(self):
         """Generate activations.
-
-        Args:
-            store_size: Number of activations to generate.
-
         Returns:
             Activation store for the train section.
 
@@ -155,29 +166,27 @@ class Pipeline:
             ValueError: If the store size is not divisible by the batch size.
         """
         # Check the store size is divisible by the batch size
-        if store_size % (self.source_data_batch_size * self.source_dataset.context_size) != 0:
+        if self.store_size % (self.source_data_batch_size * self.source_dataset.context_size) != 0:
             error_message = (
                 f"Store size must be divisible by the batch size ({self.source_data_batch_size}), "
-                f"got {store_size}"
+                f"got {self.store_size}"
             )
             raise ValueError(error_message)
 
         # Setup the store
         source_model_device = get_model_device(self.source_model)
-        store = TensorActivationStore(
-            store_size, self.n_input_features, n_components=self.n_components
-        )
+        self.activation_store.empty()
 
         # Add the hook to the model (will automatically store the activations every time the model
         # runs)
         self.source_model.remove_all_hook_fns()
         for component_idx, cache_name in enumerate(self.cache_names):
-            hook = partial(store_activations_hook, store=store, component_idx=component_idx)
+            hook = partial(store_activations_hook, store=self.activation_store, component_idx=component_idx)
             self.source_model.add_hook(cache_name, hook)
 
         # Loop through the dataloader until the store reaches the desired size
         with torch.no_grad():
-            while len(store) < store_size:
+            while len(self.activation_store) < self.store_size:
                 batch = next(self.source_data)
                 input_ids: Int[Tensor, Axis.names(Axis.SOURCE_DATA_BATCH, Axis.POSITION)] = batch[
                     "input_ids"
@@ -187,15 +196,10 @@ class Pipeline:
                 )  # type: ignore (TLens is typed incorrectly)
 
         self.source_model.remove_all_hook_fns()
-        store.shuffle()
+        self.activation_store.shuffle()
+        
 
-        return store
-
-    def train_autoencoder(
-        self,
-        activation_store: TensorActivationStore,
-        train_batch_size: PositiveInt,
-    ) -> None:
+    def train_autoencoder(self) -> None:
         """Train the sparse autoencoder.
 
         Args:
@@ -205,9 +209,6 @@ class Pipeline:
         Returns:
             Number of times each neuron fired, for each component.
         """
-        activations_dataloader = DataLoader(
-            activation_store, batch_size=train_batch_size, num_workers=4, persistent_workers=False
-        )
 
         # Setup the trainer with no console logging
         logging.getLogger("lightning.pytorch.utilities.rank_zero").setLevel(logging.WARNING)
@@ -219,7 +220,7 @@ class Pipeline:
             enable_checkpointing=False,
             precision="16-mixed",
         )
-        trainer.fit(self.autoencoder, activations_dataloader)
+        trainer.fit(self.autoencoder, self.activations_dataloader)
 
     @validate_call
     def validate_sae(self, validation_n_activations: PositiveInt) -> None:
@@ -243,8 +244,8 @@ class Pipeline:
         losses_with_zero_ablation: Float[Tensor, Axis.COMPONENT] = torch.zeros(
             self.n_components, device=source_model_device
         )
-
-        sae_model = self.autoencoder.sparse_autoencoder.clone()
+        
+        sae_model = deepcopy(self.autoencoder.sparse_autoencoder)
         sae_model.to(source_model_device)
 
         for component_idx, cache_name in enumerate(self.cache_names):
@@ -283,9 +284,9 @@ class Pipeline:
                     )
 
                     self.reconstruction_score.update(
-                        source_model_loss=loss,
-                        source_model_loss_with_reconstruction=loss_with_reconstruction,
-                        source_model_loss_with_zero_ablation=loss_with_zero_ablation,
+                        source_model_loss=loss.cpu(),
+                        source_model_loss_with_reconstruction=loss_with_reconstruction.cpu(),
+                        source_model_loss_with_zero_ablation=loss_with_zero_ablation.cpu(),
                         component_idx=component_idx,
                     )
 
@@ -338,8 +339,6 @@ class Pipeline:
     @validate_call
     def run_pipeline(
         self,
-        train_batch_size: PositiveInt,
-        max_store_size: PositiveInt,
         max_activations: PositiveInt,
         validation_n_activations: PositiveInt = 1024,
         validate_frequency: PositiveInt | None = None,
@@ -361,11 +360,6 @@ class Pipeline:
 
         self.source_model.eval()  # Set the source model to evaluation (inference) mode
 
-        # Get the store size
-        store_size: int = max_store_size - max_store_size % (
-            self.source_data_batch_size * self.source_dataset.context_size
-        )
-
         # Get the loss fn
         loss_fn = self.autoencoder.loss_fn.clone()
         loss_fn.keep_batch_dim = True
@@ -374,19 +368,19 @@ class Pipeline:
             desc="Activations trained on",
             total=max_activations,
         ) as progress_bar:
-            for _ in range(0, max_activations, store_size):
+            for _ in range(0, max_activations, self.store_size):
                 # Generate
                 progress_bar.set_postfix({"stage": "generate"})
-                activation_store: TensorActivationStore = self.generate_activations(store_size)
+                self.generate_activations()
 
                 # Update the counters
-                n_activation_vectors_in_store = len(activation_store)
+                n_activation_vectors_in_store = len(self.activation_store)
                 last_validated += n_activation_vectors_in_store
                 last_checkpoint += n_activation_vectors_in_store
 
                 # Train & resample if needed
                 progress_bar.set_postfix({"stage": "train"})
-                self.train_autoencoder(activation_store, train_batch_size=train_batch_size)
+                self.train_autoencoder()
 
                 # Get validation metrics (if needed)
                 progress_bar.set_postfix({"stage": "validate"})
@@ -401,7 +395,8 @@ class Pipeline:
                     self.save_checkpoint()
 
                 # Update the progress bar
-                progress_bar.update(store_size)
+                progress_bar.update(self.store_size)
 
         # Save the final checkpoint
         self.save_checkpoint(is_final=True)
+

@@ -5,6 +5,8 @@ from typing import Any
 from jaxtyping import Float
 from lightning.pytorch import LightningModule
 from pydantic import NonNegativeFloat, NonNegativeInt, PositiveInt
+
+import torch
 from torch import Tensor
 from torch.optim.optimizer import Optimizer
 from torchmetrics import MetricCollection
@@ -215,12 +217,17 @@ class LitSparseAutoencoder(LightningModule):
         # Resample dead neurons
         parameter_updates = self.activation_resampler.forward(
             input_activations=batch,
-            learned_activations=output.learned_activations,
-            loss=loss,
+            learned_activations=output.learned_activations.detach(),
+            loss=loss.detach(),
             encoder_weight_reference=self.sparse_autoencoder.encoder.weight,
         )
         if parameter_updates is not None:
             self.update_parameters(parameter_updates)
+            loss = self.loss_fn.forward(
+                source_activations=batch,
+                learned_activations=output.learned_activations,
+                decoded_activations=output.decoded_activations,
+            )
 
         # Return the mean loss
         return loss.mean()
@@ -228,6 +235,10 @@ class LitSparseAutoencoder(LightningModule):
     def on_after_backward(self) -> None:
         """After-backward pass hook."""
         self.sparse_autoencoder.post_backwards_hook()
+        
+    def on_train_epoch_end(self) -> None:
+        self.loss_fn.reset()
+        self.train_metrics.reset()
 
     def configure_optimizers(self) -> Optimizer:
         """Configure the optimizer."""

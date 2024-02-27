@@ -544,8 +544,20 @@ class ActivationResampler(Metric):
             This is only called when forward/compute has returned parameters to update (i.e.
             resampling is due).
         """
+        """Reset metric state variables to their default value."""
+        self._update_count = 0
+        self._forward_cache = None
+        self._computed = None
+
+        for attr, default in self._defaults.items():
+            current_val = getattr(self, attr)
+            if isinstance(default, Tensor):
+                setattr(self, attr, default.detach().clone().to(current_val.device))
+            else:
+                setattr(self, attr, [])
+
+        # reset internal states
+        self._cache = None
+        self._is_synced = False
         self._n_activations_seen_process = 0
-        self._neuron_fired_count = torch.zeros_like(self._neuron_fired_count)
-        self._loss = []
-        self._input_activations = []
         self._n_times_resampled += 1

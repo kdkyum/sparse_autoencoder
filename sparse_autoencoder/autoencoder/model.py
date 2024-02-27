@@ -1,4 +1,5 @@
 """The Sparse Autoencoder Model."""
+import os
 from pathlib import Path
 from tempfile import gettempdir
 from typing import NamedTuple
@@ -325,17 +326,21 @@ class SparseAutoencoder(Module):
         if wandb.run is None:
             error_message = "Trying to save the model to wandb, but wandb is not initialised."
             raise ValueError(error_message)
-        artifact = wandb.Artifact(
-            artifact_name,
-            type="model",
-            description="Sparse Autoencoder model state, created with `sparse_autoencoder`.",
-        )
-        artifact.add_file(str(file_path), name="sae-model-state.pt")
-        artifact.save()
-        wandb.log_artifact(artifact)
-        artifact.wait()
-
-        return artifact.source_qualified_name
+        
+        return None
+        # artifact = wandb.Artifact(
+        #     artifact_name,
+        #     type="model",
+        #     description="Sparse Autoencoder model state, created with `sparse_autoencoder`.",
+        # )
+        # artifact.add_file(str(file_path), name="sae-model-state.pt")
+        # artifact.save()
+        # wandb.log_artifact(artifact)
+        # if not os.getenv("WANDB_MODE") in ["dryrun", "offline"]:
+        #     artifact.wait()
+        #     return artifact.source_qualified_name
+        # else:
+        #     return None
 
     @staticmethod
     def load_from_wandb(

@@ -222,11 +222,11 @@ def run_training_pipeline(
             hyperparameters["autoencoder"]["expansion_factor"]
             * hyperparameters["source_model"]["hook_dimension"]
         ),
+        train_batch_size=hyperparameters["pipeline"]["train_batch_size"],
+        max_store_size=hyperparameters["pipeline"]["max_store_size"],
     )
 
     pipeline.run_pipeline(
-        train_batch_size=hyperparameters["pipeline"]["train_batch_size"],
-        max_store_size=hyperparameters["pipeline"]["max_store_size"],
         max_activations=hyperparameters["pipeline"]["max_activations"],
         checkpoint_frequency=hyperparameters["pipeline"]["checkpoint_frequency"],
         validate_frequency=hyperparameters["pipeline"]["validation_frequency"],

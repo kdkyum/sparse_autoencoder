@@ -110,7 +110,8 @@ class LinearEncoder(Module):
         """Initialize or reset the parameters."""
         # Assumes we are using ReLU activation function (for e.g. leaky ReLU, the `a` parameter and
         # `nonlinerity` must be changed.
-        init.kaiming_uniform_(self.weight, nonlinearity="relu")
+        for i in range(self._n_components):
+            init.kaiming_uniform_(self.weight[i], nonlinearity="relu")
 
         # Bias (approach from nn.Linear)
         fan_in = self.weight.size(1)

@@ -61,7 +61,7 @@ class PreTokenizedDataset(SourceDataset[dict]):
         context_size_prompts = []
         for encoding in tokenized_prompts:
             chunks = [
-                encoding[i : i + context_size]
+                [1] + encoding[i + 1 : i + context_size]
                 for i in range(0, len(encoding), context_size)
                 if len(encoding[i : i + context_size]) == context_size
             ]
