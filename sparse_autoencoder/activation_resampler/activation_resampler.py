@@ -157,6 +157,7 @@ class ActivationResampler(Metric):
 
         # Tracking
         self._n_activations_seen_process = 0
+        self._n_activations_seen_for_firing_count = 0
         self._n_times_resampled = 0
 
         # Settings
@@ -200,6 +201,7 @@ class ActivationResampler(Metric):
                 Tensor, Axis.names(Axis.BATCH, Axis.COMPONENT_OPTIONAL, Axis.LEARNT_FEATURE)
             ] = torch.gt(learned_activations, 0)
             self._neuron_fired_count += neuron_has_fired.sum(dim=0)
+            self._n_activations_seen_for_firing_count += len(neuron_has_fired)
 
         if self._n_activations_seen_process >= self.start_collecting_loss_process:
             # Typecast
@@ -234,7 +236,7 @@ class ActivationResampler(Metric):
 
         # Find any neurons that fire less than the threshold portion of times
         threshold_is_dead_n_fires: int = int(
-            self.resample_interval * self._threshold_is_dead_portion_fires
+            self._n_activations_seen_for_firing_count * self._threshold_is_dead_portion_fires
         )
 
         return [
@@ -558,4 +560,9 @@ class ActivationResampler(Metric):
         self._cache = None
         self._is_synced = False
         self._n_activations_seen_process = 0
+        self._n_activations_seen_for_firing_count = 0
+        
+        self._neuron_fired_count = torch.zeros_like(self._neuron_fired_count)
+        self._loss = []
+        self._input_activations = []
         self._n_times_resampled += 1

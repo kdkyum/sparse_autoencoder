@@ -100,7 +100,7 @@ class LitSparseAutoencoder(LightningModule):
             {
                 "l0": add_component_names(L0NormMetric(num_components), prefix="train/l0_norm"),
                 "activity": add_component_names(
-                    NeuronActivityMetric(config.n_learned_features, num_components),
+                    NeuronActivityMetric(config.n_learned_features, num_components, config.resample_threshold_is_dead_portion_fires),
                     prefix="train/neuron_activity",
                 ),
                 "l1": add_component_names(
@@ -224,6 +224,7 @@ class LitSparseAutoencoder(LightningModule):
         if parameter_updates is not None:
             self.update_parameters(parameter_updates)
             self.activation_resampler.reset()
+            self.train_metrics.reset()
 
         # Return the mean loss
         return loss.mean()
@@ -234,7 +235,6 @@ class LitSparseAutoencoder(LightningModule):
         
     def on_train_epoch_end(self) -> None:
         self.loss_fn.reset()
-        self.train_metrics.reset()
 
     def configure_optimizers(self) -> Optimizer:
         """Configure the optimizer."""
