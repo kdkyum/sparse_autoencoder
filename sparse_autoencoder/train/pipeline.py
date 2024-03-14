@@ -30,6 +30,7 @@ from sparse_autoencoder.source_model.zero_ablate_hook import zero_ablate_hook
 from sparse_autoencoder.train.utils.get_model_device import get_model_device
 from sparse_autoencoder.utils.data_parallel import DataParallelWithModelAttributes
 
+from geom_median.torch import compute_geometric_median 
 
 if TYPE_CHECKING:
     from sparse_autoencoder.tensor_types import Axis
@@ -198,7 +199,19 @@ class Pipeline:
         self.source_model.remove_all_hook_fns()
         self.activation_store.shuffle()
         
-
+    def init_with_geometric_median(self) -> None:
+        x = torch.empty((self.n_components, self.n_input_features)).cpu()
+        with torch.no_grad():
+            for i in range(self.n_components):
+                layer_acts = self.activation_store._data.detach().cpu()[:, i, :]
+                median = compute_geometric_median(
+                    layer_acts, skip_typechecks=True, maxiter=100, per_component=False
+                ).median
+                x[i] = median
+        x.requires_grad = False
+        self.autoencoder.sparse_autoencoder.geometric_median_dataset = x.clone().to(get_model_device(self.autoencoder))
+        self.autoencoder.sparse_autoencoder.initialize_tied_parameters()
+        
     def train_autoencoder(self) -> None:
         """Train the sparse autoencoder.
 
@@ -212,6 +225,7 @@ class Pipeline:
 
         # Setup the trainer with no console logging
         logging.getLogger("lightning.pytorch.utilities.rank_zero").setLevel(logging.WARNING)
+        self.activations_dataloader = DataLoader(self.activation_store, batch_size=self.train_batch_size)
         trainer = Trainer(
             logger=WandbLogger() if wandb.run is not None else None,
             max_epochs=1,
@@ -325,7 +339,7 @@ class Pipeline:
         Returns:
             Path to the saved checkpoint.
         """
-        name: str = f"{self.run_name}_{'final' if is_final else self.total_activations_trained_on}"
+        name: str = f"{'final' if is_final else self.total_activations_trained_on}"
 
         # Wandb
         if wandb.run is not None:
@@ -363,6 +377,7 @@ class Pipeline:
         # Get the loss fn
         loss_fn = self.autoencoder.loss_fn.clone()
         loss_fn.keep_batch_dim = True
+        is_first_step = True
 
         with tqdm(
             desc="Activations trained on",
@@ -372,11 +387,14 @@ class Pipeline:
                 # Generate
                 progress_bar.set_postfix({"stage": "generate"})
                 self.generate_activations()
+                if is_first_step:
+                    self.init_with_geometric_median()
 
                 # Update the counters
                 n_activation_vectors_in_store = len(self.activation_store)
                 last_validated += n_activation_vectors_in_store
                 last_checkpoint += n_activation_vectors_in_store
+                self.total_activations_trained_on += n_activation_vectors_in_store
 
                 # Train & resample if needed
                 progress_bar.set_postfix({"stage": "train"})
@@ -396,6 +414,7 @@ class Pipeline:
 
                 # Update the progress bar
                 progress_bar.update(self.store_size)
+                is_first_step = False
 
         # Save the final checkpoint
         self.save_checkpoint(is_final=True)

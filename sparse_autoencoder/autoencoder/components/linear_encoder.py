@@ -110,11 +110,14 @@ class LinearEncoder(Module):
         """Initialize or reset the parameters."""
         # Assumes we are using ReLU activation function (for e.g. leaky ReLU, the `a` parameter and
         # `nonlinerity` must be changed.
-        for i in range(self._n_components):
-            init.kaiming_uniform_(self.weight[i], nonlinearity="relu")
+        fan_in = self._input_features
+        gain = math.sqrt(2.0)
+        std = gain * math.sqrt(1.0 / fan_in)
+        bound = math.sqrt(3.0) * std
+        with torch.no_grad():
+            self.weight.uniform_(-bound, bound)
 
         # Bias (approach from nn.Linear)
-        fan_in = self.weight.size(1)
         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
         init.uniform_(self.bias, -bound, bound)
 

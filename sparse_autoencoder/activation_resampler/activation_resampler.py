@@ -495,8 +495,6 @@ class ActivationResampler(Metric):
 
                 # Reset
                 self.unsync(should_unsync=self._is_synced)
-                self.reset()
-
                 return parameter_update_results
 
         return None

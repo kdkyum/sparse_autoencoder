@@ -217,17 +217,13 @@ class LitSparseAutoencoder(LightningModule):
         # Resample dead neurons
         parameter_updates = self.activation_resampler.forward(
             input_activations=batch,
-            learned_activations=output.learned_activations.detach(),
-            loss=loss.detach(),
+            learned_activations=output.learned_activations,
+            loss=loss,
             encoder_weight_reference=self.sparse_autoencoder.encoder.weight,
         )
         if parameter_updates is not None:
             self.update_parameters(parameter_updates)
-            loss = self.loss_fn.forward(
-                source_activations=batch,
-                learned_activations=output.learned_activations,
-                decoded_activations=output.decoded_activations,
-            )
+            self.activation_resampler.reset()
 
         # Return the mean loss
         return loss.mean()

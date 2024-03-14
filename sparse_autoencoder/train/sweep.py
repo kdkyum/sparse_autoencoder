@@ -197,8 +197,8 @@ def run_training_pipeline(
         source_data: The source data.
         run_name: The name of the run.
     """
-    checkpoint_path = Path("../../.checkpoints")
-    checkpoint_path.mkdir(exist_ok=True)
+    checkpoint_path = Path(f".checkpoints/{run_name}")
+    checkpoint_path.mkdir(exist_ok=True, parents=True)
 
     random_seed = hyperparameters["random_seed"]
     torch.random.manual_seed(random_seed)
@@ -239,8 +239,7 @@ def train() -> None:
     try:
         # Set up WandB
         hyperparameters = setup_wandb()
-        run_name: str = wandb.run.name  # type: ignore
-
+        run_name: str = wandb.run.id  # type: ignore
         # Set up the source model
         source_model = setup_source_model(hyperparameters)
 

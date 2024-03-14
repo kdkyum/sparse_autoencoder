@@ -114,12 +114,9 @@ class UnitNormDecoder(Module):
 
     def update_dictionary_vectors(
         self,
-        dictionary_vector_indices: Int64[
-            Tensor, Axis.names(Axis.COMPONENT_OPTIONAL, Axis.LEARNT_FEATURE_IDX)
-        ],
-        updated_weights: Float[
-            Tensor,
-            Axis.names(Axis.COMPONENT_OPTIONAL, Axis.INPUT_OUTPUT_FEATURE, Axis.LEARNT_FEATURE_IDX),
+        dictionary_vector_indices: Int64[Tensor, Axis.names(Axis.LEARNT_FEATURE_IDX)],
+        updated_dictionary_weights: Float[
+            Tensor, Axis.names(Axis.INPUT_OUTPUT_FEATURE, Axis.LEARNT_FEATURE_IDX)
         ],
         component_idx: int | None = None,
     ) -> None:
@@ -130,7 +127,7 @@ class UnitNormDecoder(Module):
 
         Args:
             dictionary_vector_indices: Indices of the dictionary vectors to update.
-            updated_weights: Updated weights for just these dictionary vectors.
+            updated_dictionary_weights: Updated weights for just these dictionary vectors.
             component_idx: Component index to update.
 
         Raises:
@@ -145,9 +142,11 @@ class UnitNormDecoder(Module):
                     error_message = "component_idx must be specified when n_components is not None"
                     raise ValueError(error_message)
 
-                self.weight[:, dictionary_vector_indices] = updated_weights
+                self.weight[dictionary_vector_indices] = updated_dictionary_weights
             else:
-                self.weight[component_idx, :, dictionary_vector_indices] = updated_weights
+                if len(dictionary_vector_indices.shape) == 0:
+                    dictionary_vector_indices.unsqueeze_(0)
+                self.weight[component_idx, :, dictionary_vector_indices] = updated_dictionary_weights
 
     def constrain_weights_unit_norm(self) -> None:
         """Constrain the weights to have unit norm.
