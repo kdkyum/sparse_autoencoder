@@ -30,6 +30,7 @@ from sparse_autoencoder.metrics.train.neuron_activity import NeuronActivityMetri
 from sparse_autoencoder.metrics.wrappers.classwise import ClasswiseWrapperWithMean
 from sparse_autoencoder.optimizer.adam_with_reset import AdamWithReset
 from sparse_autoencoder.tensor_types import Axis
+from sparse_autoencoder.train.sweep_config import OptimizerRuntimeHyperparameters
 
 
 class LitSparseAutoencoderConfig(SparseAutoencoderConfig):
@@ -48,6 +49,8 @@ class LitSparseAutoencoderConfig(SparseAutoencoderConfig):
     resample_loss_dataset_size: PositiveInt = 819200
 
     resample_threshold_is_dead_portion_fires: NonNegativeFloat = 0.0
+    
+    optimizer_hparams: OptimizerRuntimeHyperparameters
 
     def model_post_init(self, __context: Any) -> None:  # noqa: ANN401
         """Model post init validation.
@@ -142,6 +145,13 @@ class LitSparseAutoencoder(LightningModule):
     ) -> ForwardPassResult:
         """Forward pass."""
         return self.sparse_autoencoder.forward(inputs)
+    
+    def set_loss_fn(self, l1_coefficient: float):
+        # Create the loss & metrics
+        num_components = self.config.n_components or 1
+        self.loss_fn = SparseAutoencoderLoss(
+            num_components, l1_coefficient, keep_batch_dim=True
+        )
 
     def update_parameters(self, parameter_updates: list[ParameterUpdateResults]) -> None:
         """Update the parameters of the model from the results of the resampler.
@@ -211,8 +221,8 @@ class LitSparseAutoencoder(LightningModule):
             decoded_activations=output.decoded_activations,
         )
 
-        if wandb.run is not None:
-            self.log_dict(train_metrics)
+        # if wandb.run is not None:
+        #     self.log_dict(train_metrics)
 
         # Resample dead neurons
         parameter_updates = self.activation_resampler.forward(
@@ -223,7 +233,6 @@ class LitSparseAutoencoder(LightningModule):
         )
         if parameter_updates is not None:
             self.update_parameters(parameter_updates)
-            self.activation_resampler.reset()
             self.train_metrics.reset()
 
         # Return the mean loss
@@ -234,14 +243,30 @@ class LitSparseAutoencoder(LightningModule):
         self.sparse_autoencoder.post_backwards_hook()
         
     def on_train_epoch_end(self) -> None:
+        output = self.train_metrics.compute()
+        if wandb.run is not None:
+            self.log_dict(output, on_epoch=True)
+
         self.loss_fn.reset()
+        
 
     def configure_optimizers(self) -> Optimizer:
         """Configure the optimizer."""
+        lr = self.config.optimizer_hparams["lr"]
+        beta1 = self.config.optimizer_hparams["adam_beta_1"]
+        beta2 = self.config.optimizer_hparams["adam_beta_2"]
+        adam_weight_decay = self.config.optimizer_hparams["adam_weight_decay"]
+        amsgrad = self.config.optimizer_hparams["amsgrad"]
+        fused = self.config.optimizer_hparams["fused"]
         return AdamWithReset(
             self.sparse_autoencoder.parameters(),
+            lr,
+            (beta1, beta2),
+            weight_decay=adam_weight_decay,
             named_parameters=self.sparse_autoencoder.named_parameters(),
             has_components_dim=True,
+            amsgrad=amsgrad,
+            fused=fused
         )
 
     @property

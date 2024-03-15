@@ -197,11 +197,9 @@ class ActivationResampler(Metric):
                 been called).
         """
         if self._n_activations_seen_process >= self.start_collecting_neuron_activity_process:
-            neuron_has_fired: Bool[
-                Tensor, Axis.names(Axis.BATCH, Axis.COMPONENT_OPTIONAL, Axis.LEARNT_FEATURE)
-            ] = torch.gt(learned_activations, 0)
+            neuron_has_fired = (learned_activations > 0).float()
             self._neuron_fired_count += neuron_has_fired.sum(dim=0)
-            self._n_activations_seen_for_firing_count += len(neuron_has_fired)
+            self._n_activations_seen_for_firing_count += learned_activations.shape[0]
 
         if self._n_activations_seen_process >= self.start_collecting_loss_process:
             # Typecast
@@ -497,6 +495,8 @@ class ActivationResampler(Metric):
 
                 # Reset
                 self.unsync(should_unsync=self._is_synced)
+                self.reset()
+                
                 return parameter_update_results
 
         return None
@@ -544,24 +544,8 @@ class ActivationResampler(Metric):
             This is only called when forward/compute has returned parameters to update (i.e.
             resampling is due).
         """
-        """Reset metric state variables to their default value."""
-        self._update_count = 0
-        self._forward_cache = None
-        self._computed = None
-
-        for attr, default in self._defaults.items():
-            current_val = getattr(self, attr)
-            if isinstance(default, Tensor):
-                setattr(self, attr, default.detach().clone().to(current_val.device))
-            else:
-                setattr(self, attr, [])
-
-        # reset internal states
-        self._cache = None
-        self._is_synced = False
         self._n_activations_seen_process = 0
         self._n_activations_seen_for_firing_count = 0
-        
         self._neuron_fired_count = torch.zeros_like(self._neuron_fired_count)
         self._loss = []
         self._input_activations = []

@@ -102,6 +102,7 @@ class Pipeline:
         log_frequency: PositiveInt = 100,
         num_workers_data_loading: NonNegativeInt = 0,
         source_data_batch_size: PositiveInt = 12,
+        l1_warmup_step: NonNegativeInt = 0,
     ) -> None:
         """Initialize the pipeline.
 
@@ -121,6 +122,8 @@ class Pipeline:
             source_data_batch_size: Batch size for the source data.
         """
         self.autoencoder = autoencoder
+        self.l1_coefficient = autoencoder.config.l1_coefficient
+        self.l1_warmup_step = l1_warmup_step
         self.cache_names = cache_names
         self.checkpoint_directory = checkpoint_directory
         self.layer = layer
@@ -374,9 +377,7 @@ class Pipeline:
 
         self.source_model.eval()  # Set the source model to evaluation (inference) mode
 
-        # Get the loss fn
-        loss_fn = self.autoencoder.loss_fn.clone()
-        loss_fn.keep_batch_dim = True
+        # set the loss fn
         is_first_step = True
 
         with tqdm(
@@ -387,10 +388,16 @@ class Pipeline:
                 # Generate
                 progress_bar.set_postfix({"stage": "generate"})
                 self.generate_activations()
-                if is_first_step:
-                    self.init_with_geometric_median()
+                # if is_first_step:
+                    # self.init_with_geometric_median()
 
                 # Update the counters
+                if self.total_activations_trained_on >= self.l1_warmup_step:
+                    self.autoencoder.set_loss_fn(self.l1_coefficient)
+                else:
+                    self.autoencoder.set_loss_fn(
+                        self.l1_coefficient * self.total_activations_trained_on / self.l1_warmup_step
+                    )
                 n_activation_vectors_in_store = len(self.activation_store)
                 last_validated += n_activation_vectors_in_store
                 last_checkpoint += n_activation_vectors_in_store

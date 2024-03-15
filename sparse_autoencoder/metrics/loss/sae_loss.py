@@ -2,7 +2,7 @@
 from typing import Any
 
 from jaxtyping import Float, Int64
-from pydantic import PositiveFloat, PositiveInt, validate_call
+from pydantic import PositiveFloat, PositiveInt, validate_call, NonNegativeFloat
 import torch
 from torch import Tensor
 from torchmetrics import Metric
@@ -85,7 +85,7 @@ class SparseAutoencoderLoss(Metric):
     def __init__(
         self,
         num_components: PositiveInt = 1,
-        l1_coefficient: PositiveFloat = 0.001,
+        l1_coefficient: NonNegativeFloat = 0.001,
         *,
         keep_batch_dim: bool = False,
     ):

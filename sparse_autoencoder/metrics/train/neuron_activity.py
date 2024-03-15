@@ -46,7 +46,7 @@ class NeuronActivityMetric(Metric):
         self,
         num_learned_features: PositiveInt,
         num_components: PositiveInt | None = None,
-        threshold_is_dead_portion_fires: Annotated[float, Field(strict=True, ge=0, le=1)] = 0.0,
+        threshold_is_dead_portion_fires: Annotated[float, Field(strict=True, ge=0, le=1)] = 0.00001,
     ) -> None:
         """Initialise the metric.
 

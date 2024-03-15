@@ -7,7 +7,8 @@ Warning:
     classes, so that static type checking works.
 """
 from dataclasses import dataclass, field
-from typing import Literal, TypedDict, final
+from typing import Literal, final
+from typing_extensions import TypedDict
 
 from sparse_autoencoder.train.utils.round_down import round_to_multiple
 from sparse_autoencoder.train.utils.wandb_sweep_types import (
@@ -152,10 +153,10 @@ class OptimizerHyperparameters(NestedParameter):
     Whether to use a fused implementation of the optimizer (may be faster on CUDA).
     """
 
-    lr_scheduler: Parameter[Literal["reduce_on_plateau", "cosine_annealing"]] | None = field(
-        default=None
-    )
-    """Learning rate scheduler."""
+    # lr_scheduler: Parameter[Literal["reduce_on_plateau", "cosine_annealing"]] | None = field(
+    #     default=None
+    # )
+    # """Learning rate scheduler."""
 
 
 class OptimizerRuntimeHyperparameters(TypedDict):
@@ -167,7 +168,7 @@ class OptimizerRuntimeHyperparameters(TypedDict):
     adam_weight_decay: float
     amsgrad: bool
     fused: bool
-    lr_scheduler: str | None
+    # lr_scheduler: str | None
 
 
 @dataclass(frozen=True)
@@ -293,6 +294,8 @@ class PipelineHyperparameters(NestedParameter):
         default=Parameter(DEFAULT_SOURCE_BATCH_SIZE * DEFAULT_SOURCE_CONTEXT_SIZE * 2)
     )
     """Number of activations to use for validation."""
+    
+    l1_warmup_step: Parameter[int] = field(default=Parameter(0))
 
 
 class PipelineRuntimeHyperparameters(TypedDict):
@@ -307,6 +310,7 @@ class PipelineRuntimeHyperparameters(TypedDict):
     checkpoint_frequency: int
     validation_frequency: int
     validation_n_activations: int
+    l1_warmup_step: int
 
 
 @dataclass
